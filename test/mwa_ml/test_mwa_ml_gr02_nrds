@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+
+"""
+Test for manually written automaton with LR, grammar 2,
+not reduced state set (dumb conversion of top-down parser test_mtd_01_gr02).
+"""
+
+import sys, os, traceback
+
+verbose = 0
+
+class ParseError(ValueError):
+    pass
+
+class Token:
+    def __repr__(self):
+        return self.__class__.__name__
+
+class Eoi(Token):
+    pass
+
+class Constant(Token):
+    value = None
+
+    def __init__(self, v):
+        self.value = v
+
+    def repr(v):
+        return 'Constant({!r})'.format(self.value,)
+
+class Plus(Token):
+    pass
+
+class Minus(Token):
+    pass
+
+class Star(Token):
+    pass
+
+class Slash(Token):
+    pass
+
+class DoubleStar(Token):
+    pass
+
+class LeftParen(Token):
+    pass
+
+class RightParen(Token):
+    pass
+
+class Lexer:
+    itext = None
+    ilen = None
+    ipos = None
+    curr_token = None
+
+    def __init__(self, itext):
+        self.itext = itext
+        self.ilen = len(itext)
+        self.ipos = 0
+
+    def prepare(self):
+        if self.curr_token is not None:
+            return
+        while self.ipos < self.ilen and self.itext[self.ipos] == ' ':
+            self.ipos += 1
+        if self.ipos >= self.ilen:
+            self.curr_token = Eoi()
+            return
+        cchr = self.itext[self.ipos]
+        if cchr == '+':
+            self.curr_token = Plus()
+            self.ipos += 1
+            return
+        if cchr == '-':
+            self.curr_token = Minus()
+            self.ipos += 1
+            return
+        if cchr == '*':
+            if self.itext[self.ipos:self.ipos+2] == '**':
+                self.curr_token = DoubleStar()
+                self.ipos += 2
+                return
+            self.curr_token = Star()
+            self.ipos += 1
+            return
+        if cchr == '/':
+            self.curr_token = Slash()
+            self.ipos += 1
+            return
+        if cchr == '(':
+            self.curr_token = LeftParen()
+            self.ipos += 1
+            return
+        if cchr == ')':
+            self.curr_token = RightParen()
+            self.ipos += 1
+            return
+        if '0' <= cchr <= '9':
+            xpos = self.ipos + 1
+            while xpos < self.ilen and '0' <= self.itext[xpos] <= '9':
+                xpos += 1
+            self.curr_token = Constant(int(self.itext[self.ipos:xpos], 10))
+            self.ipos = xpos
+            return
+        raise ParseError("Unlexerable rest: {}".format(self.itext[self.ipos:]))
+
+    def advance(self, expected = None):
+        if expected is not None and not isinstance(self.curr_token, expected):
+            raise ParseError("Lexer.advance: want {!r}, see {!r}".format(expected, self.curr_token))
+        self.curr_token = None
+        self.prepare()
+
+class Parser:
+    dstack = None
+    rstack = None
+    lexer = None
+    state = None
+    isFinished = False
+
+    def __init__(self):
+        self.dstack = []
+        self.rstack = []
+        self.state = 'expression.0'
+
+    def run(self, lexer):
+        while True:
+            if self.state is None:
+                if not self.rstack:
+                    break
+                self.state = self.rstack.pop()
+            new_state, for_dstack, skip_token = self.transition(
+                    self.state, lexer.curr_token)
+            if verbose >= 1:
+                print("__: transition: {} {!r} -> {} d={} skip={}".format(
+                        self.state, lexer.curr_token,
+                        new_state, for_dstack, skip_token,))
+            if for_dstack is not None:
+                self.dstack.append(for_dstack)
+            if skip_token:
+                lexer.advance()
+            self.state = new_state
+        ## As result, we expect a single number
+        if self.rstack or len(self.dstack) != 1:
+            raise ParseError("parser: run: wrong stacks after cycle: d={!r} r={!r}".format(self.dstack, self.rstack,))
+        if not isinstance(lexer.curr_token, Eoi):
+            raise ParseError("parser: run: garbage at end")
+        return self.dstack[0]
+
+    def transition(self, state, token):
+        if state == 'expression.0':
+            self.rstack.append('expression.1')
+            return ('addsub.0', None, False)
+        if state == 'expression.1':
+            return (None, None, False)
+        if state == 'addsub.0':
+            self.rstack.append('addsub.1')
+            return ('muldiv.0', None, False)
+        if state == 'addsub.1':
+            if isinstance(token, Plus):
+                self.rstack.append('addsub.r.Plus')
+                return ('muldiv.0', None, True)
+            if isinstance(token, Minus):
+                self.rstack.append('addsub.r.Minus')
+                return ('muldiv.0', None, True)
+            return (None, None, False)
+        if state == 'addsub.r.Plus':
+            v2 = self.dstack.pop()
+            v1 = self.dstack.pop()
+            return ('addsub.1', v1 + v2, False)
+        if state == 'addsub.r.Minus':
+            v2 = self.dstack.pop()
+            v1 = self.dstack.pop()
+            return ('addsub.1', v1 - v2, False)
+        if state == 'muldiv.0':
+            self.rstack.append('muldiv.1')
+            return ('power.0', None, False)
+        if state == 'muldiv.1':
+            if isinstance(token, Star):
+                self.rstack.append('muldiv.r.Star')
+                return ('power.0', None, True)
+            if isinstance(token, Slash):
+                self.rstack.append('muldiv.r.Slash')
+                return ('power.0', None, True)
+            return (None, None, False)
+        if state == 'muldiv.r.Star':
+            v2 = self.dstack.pop()
+            v1 = self.dstack.pop()
+            return ('muldiv.1', v1 * v2, False)
+        if state == 'muldiv.r.Slash':
+            v2 = self.dstack.pop()
+            v1 = self.dstack.pop()
+            return ('muldiv.1', v1 / v2, False)
+        if state == 'power.0':
+            self.rstack.append('power.1')
+            return ('unary.0', None, False)
+        if state == 'power.1':
+            if isinstance(token, DoubleStar):
+                self.rstack.append('power.r')
+                return ('power.0', None, True)
+            return (None, None, False)
+        if state == 'power.r':
+            v2 = self.dstack.pop()
+            v1 = self.dstack.pop()
+            return (None, v1 ** v2, False)
+        if state == 'unary.0':
+            if isinstance(token, Plus):
+                self.rstack.append('unary.r.Plus')
+                return ('unary.0', None, True)
+            if isinstance(token, Minus):
+                self.rstack.append('unary.r.Minus')
+                return ('unary.0', None, True)
+            return ('atom.0', None, False)
+        if state == 'unary.r.Plus':
+            return (None, None, False)
+        if state == 'unary.r.Minus':
+            value = self.dstack.pop()
+            return (None, -value, False)
+        if state == 'atom.0':
+            if isinstance(token, LeftParen):
+                self.rstack.append('atom.r.LeftParen')
+                return ('expression.0', None, True)
+            if isinstance(token, Constant):
+                return (None, token.value, True)
+        if state == 'atom.r.LeftParen':
+            if not isinstance(token, RightParen):
+                raise ParseError("Expected RightParen")
+            return (None, None, True)
+        raise ParseError("Unprocessed: state={!r} token={!r}".format(state, token,))
+
+def calcExpression(text):
+    parser = Parser()
+    lexer = Lexer(text)
+    lexer.prepare()
+    result = parser.run(lexer)
+    return result
+
+def testExpression(text, expected):
+    if verbose >= 1:
+        print()
+        print("testExpression({!r})".format(text))
+    try:
+        r = calcExpression(text)
+        if r != expected:
+            print("Fail: text={!r} expected={} r={}".format(text, expected, r))
+            exit(1)
+    except Exception:
+        print("Fail: text={!r}".format(text))
+        traceback.print_exc(file = sys.stdout)
+        exit(1)
+    if verbose >= 1:
+        print("testExpression() finished")
+
+def testExpressionFail(text):
+    if verbose >= 1:
+        print()
+        print("testExpressionFail({!r})".format(text))
+    raised = False
+    try:
+        r = calcExpression(text)
+    except ParseError:
+        raised = True
+    if not raised:
+        print("Fail: not raised for: {!r}".format(text))
+        exit(1)
+    if verbose >= 1:
+        print("testExpressionFail() finished")
+
+if __name__ == "__main__":
+    verbose = int(os.environ.get('VERBOSE', '0'))
+    testExpression("0", 0)
+    testExpression("+0", 0)
+    testExpression("-0", 0)
+    testExpression("-1", -1)
+    testExpression("--1", 1)
+    testExpression("++1", 1)
+    testExpression("+-1", -1)
+    testExpression("1+1", 2)
+    testExpression("1+-1", 0)
+    testExpression("3+4*5", 23)
+    testExpression("3+(4*5)", 23)
+    testExpression("(3+4)*5", 35)
+    testExpression("-(3+4)*5", -35)
+    testExpression("(3 + 4) * 5", 35)
+    testExpression("(2+3) * (7-4) + 11", 26)
+    testExpression("(2+3) * -(7-4) + 11", -4)
+    testExpression("2**2", 4)
+    testExpression("-2**2", 4)
+    testExpression("2**-2", 0.25)
+    testExpression("3*3**3", 81)
+    testExpression("2**2**2", 16)
+    testExpression("2**3**2", 512)
+    testExpressionFail("")
+    testExpressionFail("(")
+    testExpressionFail(")")
+    testExpressionFail("2+")
+    testExpressionFail("$")
+    testExpressionFail("2$")
+    testExpressionFail("-((2+3)")
+    testExpressionFail("-(2+3))")
+    testExpressionFail("2* *2")

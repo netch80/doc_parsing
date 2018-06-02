@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+
+"""
+Test for manually written automaton with LR, grammar 2, reduced state set
+"""
+
+import sys, os, traceback
+
+verbose = 0
+
+class ParseError(ValueError):
+    pass
+
+class Token:
+    def __repr__(self):
+        return self.__class__.__name__
+
+class Eoi(Token):
+    pass
+
+class Constant(Token):
+    value = None
+
+    def __init__(self, v):
+        self.value = v
+
+    def repr(v):
+        return 'Constant({!r})'.format(self.value,)
+
+class Plus(Token):
+
+    def doPrefix(self, v):
+        return v
+
+    def doInfix(self, v1, v2):
+        return v1 + v2
+
+class Minus(Token):
+
+    def doPrefix(self, v):
+        return -v
+
+    def doInfix(self, v1, v2):
+        return v1 - v2
+
+class Star(Token):
+
+    def doInfix(self, v1, v2):
+        return v1 * v2
+
+class Slash(Token):
+
+    def doInfix(self, v1, v2):
+        return v1 / v2
+
+class DoubleStar(Token):
+
+    def doInfix(self, v1, v2):
+        return v1 ** v2
+
+class LeftParen(Token):
+    pass
+
+class RightParen(Token):
+    pass
+
+class Lexer:
+    itext = None
+    ilen = None
+    ipos = None
+    curr_token = None
+
+    def __init__(self, itext):
+        self.itext = itext
+        self.ilen = len(itext)
+        self.ipos = 0
+
+    def prepare(self):
+        if self.curr_token is not None:
+            return
+        while self.ipos < self.ilen and self.itext[self.ipos] == ' ':
+            self.ipos += 1
+        if self.ipos >= self.ilen:
+            self.curr_token = Eoi()
+            return
+        cchr = self.itext[self.ipos]
+        if cchr == '+':
+            self.curr_token = Plus()
+            self.ipos += 1
+            return
+        if cchr == '-':
+            self.curr_token = Minus()
+            self.ipos += 1
+            return
+        if cchr == '*':
+            if self.itext[self.ipos:self.ipos+2] == '**':
+                self.curr_token = DoubleStar()
+                self.ipos += 2
+                return
+            self.curr_token = Star()
+            self.ipos += 1
+            return
+        if cchr == '/':
+            self.curr_token = Slash()
+            self.ipos += 1
+            return
+        if cchr == '(':
+            self.curr_token = LeftParen()
+            self.ipos += 1
+            return
+        if cchr == ')':
+            self.curr_token = RightParen()
+            self.ipos += 1
+            return
+        if '0' <= cchr <= '9':
+            xpos = self.ipos + 1
+            while xpos < self.ilen and '0' <= self.itext[xpos] <= '9':
+                xpos += 1
+            self.curr_token = Constant(int(self.itext[self.ipos:xpos], 10))
+            self.ipos = xpos
+            return
+        raise ParseError("Unlexerable rest: {}".format(self.itext[self.ipos:]))
+
+    def advance(self, expected = None):
+        if expected is not None and not isinstance(self.curr_token, expected):
+            raise ParseError("Lexer.advance: want {!r}, see {!r}".format(expected, self.curr_token))
+        self.curr_token = None
+        self.prepare()
+
+class StateBase:
+
+    def transition(self, parser, token):
+        raise ParseError("Unhandled transition: state={} token={!r}".format(
+                self.__class__, token,))
+
+class ExpectUnary(StateBase):
+
+    def transition(self, parser, token):
+        if verbose >= 2:
+            print("__: {}.transition: token={} stack={}".format(
+                    self.__class__.__name__, token, parser.stack,))
+        if isinstance(token, Constant):
+            v = token.value
+            v = parser.reduce_prefix_ops(v)
+            parser.push(v)
+            return ExpectInfixOrEoi
+        if isinstance(token, LeftParen):
+            parser.push(LeftParen)
+            return ExpectUnary
+        if isinstance(token, Plus):
+            parser.push(("prefix", Plus,))
+            return ExpectUnary
+        if isinstance(token, Minus):
+            parser.push(("prefix", Minus,))
+            return ExpectUnary
+        raise ParseError("Unhandled transition: state={} token={!r}".format(
+                self.__class__, token,))
+
+class ExpectInfixOrEoi(StateBase):
+
+    def transition(self, parser, token):
+        if verbose >= 2:
+            print("__: {}.transition: token={} stack={}".format(
+                    self.__class__.__name__, token, parser.stack,))
+        ALL_INFIX_OPS = (Plus, Minus, Star, Slash, DoubleStar,)
+        if isinstance(token, Plus):
+            parser.reduce_infix_ops(ALL_INFIX_OPS)
+            parser.push(("infix", token.__class__,))
+            return ExpectUnary
+        if isinstance(token, Minus):
+            parser.reduce_infix_ops(ALL_INFIX_OPS)
+            parser.push(("infix", token.__class__,))
+            return ExpectUnary
+        if isinstance(token, Star):
+            parser.reduce_infix_ops((Star, Slash, DoubleStar,))
+            parser.push(("infix", token.__class__,))
+            return ExpectUnary
+        if isinstance(token, Slash):
+            parser.reduce_infix_ops((Star, Slash, DoubleStar,))
+            parser.push(("infix", token.__class__,))
+            return ExpectUnary
+        if isinstance(token, DoubleStar):
+            parser.push(("infix", token.__class__,))
+            return ExpectUnary
+        if isinstance(token, RightParen):
+            parser.reduce_infix_ops(ALL_INFIX_OPS)
+            if verbose >= 2:
+                print("__: ExpectInfixOrEoi: RightParen: stack={}".format(
+                        parser.stack,))
+            if len(parser.stack) < 2 or \
+                    not isinstance(parser.stack[-1], (int, float,)) or \
+                    parser.stack[-2] != LeftParen:
+                raise ParseError("Mismatched right parenthesis; stack is: {}".format(parser.stack,))
+            v = parser.pop()
+            parser.pop()
+            v = parser.reduce_prefix_ops(v) ## looks like hack
+            parser.push(v)
+            return ExpectInfixOrEoi
+        if isinstance(token, Eoi):
+            parser.reduce_infix_ops(ALL_INFIX_OPS)
+            parser.finish()
+            return None
+        raise ParseError("Unhandled transition: state={} token={!r}".format(
+                self.__class__, token,))
+
+class Parser:
+    stack = None
+    lexer = None
+    state = None
+    isFinished = False
+
+    def __init__(self):
+        self.stack = []
+
+    def run(self, lexer):
+        self.state = ExpectUnary()
+        while True:
+            if self.isFinished:
+                break
+            curr_token = lexer.curr_token
+            new_state_class = self.state.transition(self, curr_token)
+            if not isinstance(curr_token, Eoi):
+                lexer.advance()
+            if new_state_class:
+                self.state = new_state_class()
+        ## As result, we expect a single number
+        if len(self.stack) != 1 or not isinstance(self.stack[0], (int, float,)):
+            raise ParseError("parser: run: wrong stack: {!r}".format(self.stack))
+        return self.stack[0]
+
+    def reduce_infix_ops(self, op_set):
+        while True:
+            if len(self.stack) < 1:
+                raise ParseError("reduce_infix_ops: empty stack")
+            if not isinstance(self.stack[-1], (int, float,)):
+                raise ParseError("reduce_infix_ops: not number at stack top")
+            if len(self.stack) >= 3 and \
+                    isinstance(self.stack[-2], tuple) and \
+                    len(self.stack[-2]) == 2 and \
+                    self.stack[-2][0] == "infix" and \
+                    self.stack[-2][1] in op_set and \
+                    isinstance(self.stack[-3], (int, float,)):
+                v2 = self.stack.pop()
+                op = self.stack.pop()[1]
+                v1 = self.stack.pop()
+                v = op().doInfix(v1, v2)
+                self.stack.append(v)
+                if verbose >= 1:
+                    print("__: reduce_infix_ops: {}({},{}) -> {}".format(
+                            op, v1, v2, v,))
+            else:
+                break
+        if verbose >= 3:
+            print("__: reduce_infix_ops: final stack={}".format(self.stack,))
+
+    def reduce_prefix_ops(self, value):
+        while len(self.stack) >= 1 and \
+                isinstance(self.stack[-1], tuple) and \
+                len(self.stack[-1]) == 2 and \
+                self.stack[-1][0] == "prefix":
+            op = self.stack.pop()[1]
+            prev_value = value
+            value = op().doPrefix(prev_value)
+            if verbose >= 1:
+                print("__: reduce_prefix_ops: reduce {}({})->{}".format(
+                        op, prev_value, value,))
+        if verbose >= 3:
+            print("__: reduce_prefix_ops: final value={} stack={}".format(value, self.stack,))
+        return value
+
+    def finish(self):
+        self.isFinished = True
+
+    def pop(self):
+        return self.stack.pop()
+
+    def push(self, value):
+        self.stack.append(value)
+
+def calcExpression(text):
+    parser = Parser()
+    lexer = Lexer(text)
+    lexer.prepare()
+    result = parser.run(lexer)
+    return result
+
+def testExpression(text, expected):
+    if verbose >= 1:
+        print()
+        print("testExpression({!r})".format(text))
+    try:
+        r = calcExpression(text)
+        if r != expected:
+            print("Fail: text={!r} expected={} r={}".format(text, expected, r))
+            exit(1)
+    except Exception:
+        print("Fail: text={!r}".format(text))
+        traceback.print_exc(file = sys.stdout)
+        exit(1)
+    if verbose >= 1:
+        print("testExpression() finished")
+
+def testExpressionFail(text):
+    if verbose >= 1:
+        print()
+        print("testExpressionFail({!r})".format(text))
+    raised = False
+    try:
+        r = calcExpression(text)
+    except ParseError:
+        raised = True
+    if not raised:
+        print("Fail: not raised for: {!r}".format(text))
+        exit(1)
+    if verbose >= 1:
+        print("testExpressionFail() finished")
+
+if __name__ == "__main__":
+    verbose = int(os.environ.get('VERBOSE', '0'))
+    testExpression("0", 0)
+    testExpression("+0", 0)
+    testExpression("-0", 0)
+    testExpression("-1", -1)
+    testExpression("--1", 1)
+    testExpression("++1", 1)
+    testExpression("+-1", -1)
+    testExpression("1+1", 2)
+    testExpression("1+-1", 0)
+    testExpression("3+4*5", 23)
+    testExpression("3+(4*5)", 23)
+    testExpression("(3+4)*5", 35)
+    testExpression("-(3+4)*5", -35)
+    testExpression("(3 + 4) * 5", 35)
+    testExpression("(2+3) * (7-4) + 11", 26)
+    testExpression("(2+3) * -(7-4) + 11", -4)
+    testExpression("2**2", 4)
+    testExpression("-2**2", 4)
+    testExpression("2**-2", 0.25)
+    testExpression("3*3**3", 81)
+    testExpression("2**2**2", 16)
+    testExpression("2**3**2", 512)
+    testExpressionFail("")
+    testExpressionFail("(")
+    testExpressionFail(")")
+    testExpressionFail("2+")
+    testExpressionFail("$")
+    testExpressionFail("2$")
+    testExpressionFail("-((2+3)")
+    testExpressionFail("-(2+3))")
+    testExpressionFail("2* *2")

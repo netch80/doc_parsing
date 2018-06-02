@@ -1,0 +1,7 @@
+antlr: based on ANTLR 4
+bison: based on bison+flex
+mtdp_ml: manual top-down parser, manual lexer
+mtdp_re2c: manual top-down parser, re2c lexer
+mwa_ml: manual parser translated to FSM, manual lexer
+pratt_ml: Pratt parser, manual lexer
+spirit_qi: based on Boost.Spirit.Qi

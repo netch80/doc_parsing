@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+
+import sys, os, traceback, math
+
+"""
+Manual top-down (MTD) parser.
+Testing default order (+-, */, **, unaries, primaries).
+Variables and maps are defined.
+"""
+
+verbose = 0
+
+class DCParseError(ValueError):
+    pass
+
+class DCExecutionError(RuntimeError):
+    pass
+
+class Token:
+    pass
+
+class Eoi(Token):
+    pass
+
+class Constant(Token):
+    value = None
+
+    def __init__(self, v):
+        self.value = v
+
+class Plus(Token):
+    pass
+
+class Minus(Token):
+    pass
+
+class Star(Token):
+    pass
+
+class Slash(Token):
+    pass
+
+class DoubleStar(Token):
+    pass
+
+class LeftParen(Token):
+    pass
+
+class RightParen(Token):
+    pass
+
+class LeftBracket(Token):
+    pass
+
+class RightBracket(Token):
+    pass
+
+class Word(Token):
+    word = None
+
+    def __init__(self, word):
+        self.word = word
+
+class Identifier(Word):
+    pass
+
+class Keyword(Word):
+    pass
+
+class Eq(Token):
+    pass
+
+class Lexer:
+    itext = None
+    ilen = None
+    ipos = None
+    curr_token = None
+
+    IDENT_FIRST_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + \
+            'abcdefghijklmnopqrstuvwxyz_'
+    IDENT_FOLLOW_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' + \
+            'abcdefghijklmnopqrstuvwxyz0123456789_'
+
+    def __init__(self, itext):
+        self.itext = itext
+        self.ilen = len(itext)
+        self.ipos = 0
+
+    def prepare(self):
+        if self.curr_token is not None:
+            return
+        if verbose >= 2:
+            print("__: Lexer.prepare: rest={!r}".format(self.itext[self.ipos:]))
+        while self.ipos < self.ilen and self.itext[self.ipos] == ' ':
+            self.ipos += 1
+        if self.ipos >= self.ilen:
+            self.curr_token = Eoi()
+            return
+        cchr = self.itext[self.ipos]
+        if cchr == '+':
+            self.curr_token = Plus()
+            self.ipos += 1
+            return
+        if cchr == '-':
+            self.curr_token = Minus()
+            self.ipos += 1
+            return
+        if cchr == '*':
+            if self.itext[self.ipos:self.ipos+2] == '**':
+                self.curr_token = DoubleStar()
+                self.ipos += 2
+                return
+            self.curr_token = Star()
+            self.ipos += 1
+            return
+        if cchr == '/':
+            self.curr_token = Slash()
+            self.ipos += 1
+            return
+        if cchr == '(':
+            self.curr_token = LeftParen()
+            self.ipos += 1
+            return
+        if cchr == ')':
+            self.curr_token = RightParen()
+            self.ipos += 1
+            return
+        if cchr == '[':
+            self.curr_token = LeftBracket()
+            self.ipos += 1
+            return
+        if cchr == ']':
+            self.curr_token = RightBracket()
+            self.ipos += 1
+            return
+        if cchr == '=':
+            self.curr_token = Eq()
+            self.ipos += 1
+            return
+        if '0' <= cchr <= '9':
+            xpos = self.ipos + 1
+            while xpos < self.ilen and '0' <= self.itext[xpos] <= '9':
+                xpos += 1
+            self.curr_token = Constant(int(self.itext[self.ipos:xpos], 10))
+            self.ipos = xpos
+            return
+        if cchr in self.IDENT_FIRST_CHARS:
+            xpos = self.ipos + 1
+            while xpos < self.ilen and self.itext[xpos] in self.IDENT_FOLLOW_CHARS:
+                xpos += 1
+            self.curr_token = Identifier(self.itext[self.ipos:xpos])
+            self.ipos = xpos
+            return
+        if cchr == '@':
+            xpos = self.ipos + 1
+            while xpos < self.ilen and self.itext[xpos] in self.IDENT_FOLLOW_CHARS:
+                xpos += 1
+            self.curr_token = Keyword(self.itext[self.ipos+1:xpos])
+            #- print("__: Lexer: Keyword generated")
+            self.ipos = xpos
+            return
+        raise DCParseError("Unlexerable rest: {}".format(self.itext[self.ipos:]))
+
+    def advance(self, expected = None):
+        if expected is not None and not isinstance(self.curr_token, expected):
+            raise DCParseError("Lexer.advance: want {!r}, see {!r}".format(expected, self.curr_token))
+        self.curr_token = None
+        self.prepare()
+
+    def getRest(self):
+        return self.itext[self.ipos:]
+
+class SemanticValue:
+
+    def getRValue(self, econtext):
+        raise NotImplementedError("getRValue")
+
+    def assignValue(self, econtext, newValue):
+        raise NotImplementedError("assignValue")
+
+class ScalarSV(SemanticValue):
+    value = None
+
+    def __init__(self, value):
+        self.value = value
+
+    def getRValue(self, econtext):
+        return self.value
+
+    def assignValue(self, econtext, newValue):
+        raise DCExecutionError("assignValue: this is rvalue")
+
+class IdentifierSV(SemanticValue):
+    name = None
+
+    def __init__(self, name):
+        self.name = name
+
+    def getRValue(self, econtext):
+        return econtext.scalars.get(self.name, math.nan)
+
+    def assignValue(self, econtext, newValue):
+        if self.name in econtext.maps:
+            raise DCExecutionError("assignValue: cannot assign to map")
+        econtext.scalars[self.name] = newValue
+
+class IndexedReferenceSV(SemanticValue):
+    base = None
+    index = None
+
+    def __init__(self, base, index):
+        self.base = base
+        self.index = index
+
+    def getRValue(self, econtext):
+        if not isinstance(self.base, IdentifierSV):
+            raise DCExecutionError("Only identifier can be indexed")
+        ivalue = self.index.getRValue(econtext)
+        themap = econtext.maps.get(self.base.name)
+        if themap is None:
+            raise DCExecutionError("Map not found")
+        if not ivalue in themap:
+            raise DCExecutionError("Map element not found")
+        return themap[ivalue]
+
+    def assignValue(self, econtext, newElementValue):
+        if not isinstance(self.base, IdentifierSV):
+            raise DCExecutionError("Only identifier can be indexed")
+        ivalue = self.index.getRValue(econtext)
+        themap = econtext.maps.get(self.base.name)
+        if themap is None:
+            raise DCExecutionError("Map not found")
+        themap[ivalue] = newElementValue
+
+class ExecutionContext:
+    """
+    This accumulates variables state during execution.
+    """
+    scalars = None
+    maps = None
+
+    def __init__(self):
+        self.scalars = {}
+        self.maps = {}
+
+    def createMap(self, mname):
+        self.maps.setdefault(mname, {})
+
+class Parser:
+    econtext = None
+    lexer = None
+
+    def statement(self):
+        if isinstance(self.lexer.curr_token, Keyword) and \
+                self.lexer.curr_token.word == 'defmap':
+            return self.processDefmap()
+        return self.expression()
+
+    def processDefmap(self):
+        if verbose >= 2:
+            print("__: processDefmap")
+        self.lexer.advance()
+        if not isinstance(self.lexer.curr_token, Identifier):
+            raise DCParseError("Not identifier after @defmap")
+        ident = self.lexer.curr_token.word
+        self.econtext.createMap(ident)
+        self.lexer.advance()
+
+    def expression(self):
+        if verbose >= 2:
+            print("expression: processing: {!r} + {!r}".format(self.lexer.curr_token, self.lexer.getRest()))
+        return self.assignment()
+
+    def assignment(self):
+        if verbose:
+            print("__: Parser.assignment")
+        part1 = self.addsub()
+        if verbose:
+            print("__: Parser.assignment: after part1: {}".format(self.lexer.curr_token,))
+        if isinstance(self.lexer.curr_token, Eq):
+            self.lexer.advance()
+            value2 = self.assignment().getRValue(self.econtext)
+            part1.assignValue(self.econtext, value2)
+            return ScalarSV(value2)
+        return part1
+
+    def addsub(self):
+        v = self.muldiv()
+        while True:
+            if isinstance(self.lexer.curr_token, Plus):
+                self.lexer.advance()
+                v2 = self.muldiv().getRValue(self.econtext)
+                v = v.getRValue(self.econtext) if isinstance(v, SemanticValue) else v
+                v += v2
+            elif isinstance(self.lexer.curr_token, Minus):
+                self.lexer.advance()
+                v2 = self.muldiv().getRValue(self.econtext)
+                v = v.getRValue(self.econtext) if isinstance(v, SemanticValue) else v
+                v -= v2
+            else:
+                break
+        return v if isinstance(v, SemanticValue) else ScalarSV(v)
+
+    def muldiv(self):
+        v = self.power()
+        while True:
+            if isinstance(self.lexer.curr_token, Star):
+                self.lexer.advance()
+                v2 = self.power().getRValue(self.econtext)
+                v = v.getRValue(self.econtext) if isinstance(v, SemanticValue) else v
+                v *= v2
+            elif isinstance(self.lexer.curr_token, Slash):
+                self.lexer.advance()
+                v2 = self.power().getRValue(self.econtext)
+                v = v.getRValue(self.econtext) if isinstance(v, SemanticValue) else v
+                v /= v2
+            else:
+                break
+        return v if isinstance(v, SemanticValue) else ScalarSV(v)
+
+    def power(self):
+        v = self.unary()
+        if isinstance(self.lexer.curr_token, DoubleStar):
+            self.lexer.advance()
+            v2 = self.power().getRValue(self.econtext)
+            v = v.getRValue(self.econtext) if isinstance(v, SemanticValue) else v
+            v = v ** v2
+        return v if isinstance(v, SemanticValue) else ScalarSV(v)
+
+    def unary(self):
+        if isinstance(self.lexer.curr_token, Plus):
+            self.lexer.advance()
+            return self.unary()
+        if isinstance(self.lexer.curr_token, Minus):
+            self.lexer.advance()
+            return ScalarSV(-self.unary().getRValue(self.econtext))
+        return self.primary()
+
+    def primary(self):
+        part1 = self.atom()
+        while True:
+            if isinstance(self.lexer.curr_token, LeftBracket):
+                self.lexer.advance()
+                part2 = ScalarSV(self.expression().getRValue(self.econtext))
+                if not isinstance(self.lexer.curr_token, RightBracket):
+                    raise DCParseError("Expecting right bracket")
+                self.lexer.advance()
+                part1 = IndexedReferenceSV(part1, part2)
+            else:
+                break
+        return part1
+
+    def atom(self):
+        ct = self.lexer.curr_token
+        if verbose:
+            print("__: Parser.primary: ct={}".format(ct))
+        if isinstance(ct, LeftParen):
+            self.lexer.advance()
+            ## NB we don't force rvalue here!
+            v = self.expression()
+            if not isinstance(self.lexer.curr_token, RightParen):
+                raise DCParseError("Expecting right paren")
+            self.lexer.advance()
+            return v
+        if isinstance(ct, Constant):
+            v = self.lexer.curr_token.value
+            self.lexer.advance()
+            return ScalarSV(v)
+        if isinstance(ct, Identifier):
+            ret = IdentifierSV(self.lexer.curr_token.word)
+            self.lexer.advance()
+            return ret
+        raise DCParseError("primary: unexpected token {}".format(self.lexer.curr_token))
+
+def calcBlock(block):
+    econtext = ExecutionContext()
+    parser = Parser()
+    parser.econtext = econtext
+    for line in block:
+        if verbose >= 2:
+            print("__: calcBlock: process line: {!r}".format(line))
+        parser.lexer = Lexer(line)
+        parser.lexer.prepare()
+        ret = parser.statement()
+        ret = ret.getRValue(econtext) if isinstance(ret, SemanticValue) else ret
+        if not isinstance(parser.lexer.curr_token, Eoi):
+            raise DCParseError("garbage at end of line {!r}".format(line))
+    return ret
+
+def testBlock(text, expected):
+    try:
+        r = calcBlock(text)
+        if r != expected:
+            print("Fail: text={!r} expected={} r={}".format(text, expected, r))
+            exit(1)
+    except Exception:
+        print("Fail: text={!r}".format(text))
+        traceback.print_exc(file = sys.stdout)
+        exit(1)
+
+def testBlockFail(text):
+    raised = False
+    try:
+        calcBlock(text)
+    except (DCParseError, DCExecutionError) as ex:
+        raised = True
+        if verbose:
+            print("testBlockFail: exception: {}".format(ex))
+    if not raised:
+        print("Fail: not raised for: {!r}".format(text))
+        exit(1)
+
+if __name__ == "__main__":
+    verbose = int(os.environ.get('VERBOSE', '0'))
+
+    ## Test set - single expressions
+    testBlock(["0"], 0)
+    testBlock(["+0"], 0)
+    testBlock(["-0"], 0)
+    testBlock(["-1"], -1)
+    testBlock(["--1"], 1)
+    testBlock(["++1"], 1)
+    testBlock(["+-1"], -1)
+    testBlock(["1+1"], 2)
+    testBlock(["1+-1"], 0)
+    testBlock(["3+4*5"], 23)
+    testBlock(["3+(4*5)"], 23)
+    testBlock(["(3+4)*5"], 35)
+    testBlock(["-(3+4)*5"], -35)
+    testBlock(["(3 + 4) * 5"], 35)
+    testBlock(["(2+3) * (7-4) + 11"], 26)
+    testBlock(["(2+3) * -(7-4) + 11"], -4)
+    testBlock(["2**2"], 4)
+    testBlock(["-2**2"], 4)
+    testBlock(["2**-2"], 0.25)
+    testBlock(["3*3**3"], 81)
+    testBlock(["2**2**2"], 16)
+    testBlock(["2**3**2"], 512)
+    testBlockFail([""])
+    testBlockFail(["("])
+    testBlockFail([")"])
+    testBlockFail(["2+"])
+    testBlockFail(["$"])
+    testBlockFail(["2$"])
+    testBlockFail(["-((2+3)"])
+    testBlockFail(["-(2+3))"])
+    testBlockFail(["2* *2"])
+
+    ## Test set - scalar assignments and their usage
+    testBlock(["a=1", "a"], 1)
+    testBlock(["a=3", "b=5", "a+b"], 8)
+    testBlock(["a=b=5", "a*b"], 25)
+    testBlock(["a=44"], 44)
+    testBlock(["(a)=177"], 177)
+    testBlock(["@defmap zz", "zz[1]=50"], 50)
+    testBlock(["@defmap zxcv", "(zxcv[1])=255", "(zxcv[(3-2)]-2)"], 253)
+    testBlock(["@defmap yx", "yx[1]=50", "yx[2]=yx[3]=4",
+            "mm=8", "yx[1]*mm + yx[2]/yx[3]"], 401)
+    testBlockFail(["@hello"])
+    testBlockFail(["1[2]"])
+    testBlockFail(["(c=d)=3"])

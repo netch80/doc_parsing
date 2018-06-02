@@ -1,0 +1,12 @@
+Note for testing
+The simplest way to prepare environment is to source the script like:
+
+==={{{
+#!/bin/sh
+ANTLR_HOME=/home/netch/opt/antlr
+ANTLR_JAR=$ANTLR_HOME/antlr-4.5.3-complete.jar
+export CLASSPATH=$ANTLR_JAR:"$CLASSPATH"
+alias antlr="java -jar $ANTLR_JAR"
+alias antlr4="java -jar $ANTLR_JAR"
+alias grun="java org.antlr.v4.gui.TestRig"
+===}}}

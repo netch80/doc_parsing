@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+
+import sys, traceback
+
+"""
+Manual top-down (MTD) parser.
+Testing default order (+-, */, **, unaries, primaries)
+"""
+
+class ParseError(ValueError):
+    pass
+
+class Token:
+    pass
+
+class Eoi(Token):
+    pass
+
+class Constant(Token):
+    value = None
+
+    def __init__(self, v):
+        self.value = v
+
+class Plus(Token):
+    pass
+
+class Minus(Token):
+    pass
+
+class Star(Token):
+    pass
+
+class Slash(Token):
+    pass
+
+class DoubleStar(Token):
+    pass
+
+class LeftParen(Token):
+    pass
+
+class RightParen(Token):
+    pass
+
+class Lexer:
+    itext = None
+    ilen = None
+    ipos = None
+    curr_token = None
+
+    def __init__(self, itext):
+        self.itext = itext
+        self.ilen = len(itext)
+        self.ipos = 0
+
+    def prepare(self):
+        if self.curr_token is not None:
+            return
+        while self.ipos < self.ilen and self.itext[self.ipos] == ' ':
+            self.ipos += 1
+        if self.ipos >= self.ilen:
+            self.curr_token = Eoi()
+            return
+        cchr = self.itext[self.ipos]
+        if cchr == '+':
+            self.curr_token = Plus()
+            self.ipos += 1
+            return
+        if cchr == '-':
+            self.curr_token = Minus()
+            self.ipos += 1
+            return
+        if cchr == '*':
+            if self.itext[self.ipos:self.ipos+2] == '**':
+                self.curr_token = DoubleStar()
+                self.ipos += 2
+                return
+            self.curr_token = Star()
+            self.ipos += 1
+            return
+        if cchr == '/':
+            self.curr_token = Slash()
+            self.ipos += 1
+            return
+        if cchr == '(':
+            self.curr_token = LeftParen()
+            self.ipos += 1
+            return
+        if cchr == ')':
+            self.curr_token = RightParen()
+            self.ipos += 1
+            return
+        if '0' <= cchr <= '9':
+            xpos = self.ipos + 1
+            while xpos < self.ilen and '0' <= self.itext[xpos] <= '9':
+                xpos += 1
+            self.curr_token = Constant(int(self.itext[self.ipos:xpos], 10))
+            self.ipos = xpos
+            return
+        raise ParseError("Unlexerable rest: {}".format(self.itext[self.ipos:]))
+
+    def advance(self, expected = None):
+        if expected is not None and not isinstance(self.curr_token, expected):
+            raise ParseError("Lexer.advance: want {!r}, see {!r}".format(expected, self.curr_token))
+        self.curr_token = None
+        self.prepare()
+
+class Parser:
+    lexer = None
+
+    def expression(self):
+        return self.addsub()
+
+    def addsub(self):
+        v = self.muldiv()
+        while True:
+            if isinstance(self.lexer.curr_token, Plus):
+                self.lexer.advance()
+                v2 = self.muldiv()
+                v += v2
+            elif isinstance(self.lexer.curr_token, Minus):
+                self.lexer.advance()
+                v2 = self.muldiv()
+                v -= v2
+            else:
+                break
+        return v
+
+    def muldiv(self):
+        v = self.power()
+        while True:
+            if isinstance(self.lexer.curr_token, Star):
+                self.lexer.advance()
+                v2 = self.power()
+                v *= v2
+            elif isinstance(self.lexer.curr_token, Slash):
+                self.lexer.advance()
+                v2 = self.power()
+                v /= v2
+            else:
+                break
+        return v
+
+    def power(self):
+        v = self.unary()
+        if isinstance(self.lexer.curr_token, DoubleStar):
+            self.lexer.advance()
+            v2 = self.power()
+            v = v ** v2
+        return  v
+
+    def unary(self):
+        if isinstance(self.lexer.curr_token, Plus):
+            self.lexer.advance()
+            return self.unary()
+        if isinstance(self.lexer.curr_token, Minus):
+            self.lexer.advance()
+            return -self.unary()
+        return self.atom()
+
+    def atom(self):
+        if isinstance(self.lexer.curr_token, LeftParen):
+            self.lexer.advance()
+            v = self.expression()
+            if not isinstance(self.lexer.curr_token, RightParen):
+                raise ParseError("Expecting right paren")
+            self.lexer.advance()
+            return v
+        if isinstance(self.lexer.curr_token, Constant):
+            v = self.lexer.curr_token.value
+            self.lexer.advance()
+            return v
+        raise ParseError("atom: unexpected token {}".format(self.lexer.curr_token))
+
+def calcExpression(text):
+    parser = Parser()
+    parser.lexer = Lexer(text)
+    parser.lexer.prepare()
+    ret = parser.expression()
+    if not isinstance(parser.lexer.curr_token, Eoi):
+        raise ParseError("garbage at end")
+    return ret
+
+def testExpression(text, expected):
+    try:
+        r = calcExpression(text)
+        if r != expected:
+            print("Fail: text={!r} expected={} r={}".format(text, expected, r))
+            exit(1)
+    except Exception:
+        print("Fail: text={!r}".format(text))
+        traceback.print_exc(file = sys.stdout)
+        exit(1)
+
+def testExpressionFail(text):
+    raised = False
+    try:
+        r = calcExpression(text)
+    except ParseError:
+        raised = True
+    if not raised:
+        print("Fail: not raised for: {!r}".format(text))
+        exit(1)
+
+if __name__ == "__main__":
+    testExpression("0", 0)
+    testExpression("+0", 0)
+    testExpression("-0", 0)
+    testExpression("-1", -1)
+    testExpression("--1", 1)
+    testExpression("++1", 1)
+    testExpression("+-1", -1)
+    testExpression("1+1", 2)
+    testExpression("1+-1", 0)
+    testExpression("3+4*5", 23)
+    testExpression("3+(4*5)", 23)
+    testExpression("(3+4)*5", 35)
+    testExpression("-(3+4)*5", -35)
+    testExpression("(3 + 4) * 5", 35)
+    testExpression("(2+3) * (7-4) + 11", 26)
+    testExpression("(2+3) * -(7-4) + 11", -4)
+    testExpression("2**2", 4)
+    testExpression("-2**2", 4)
+    testExpression("2**-2", 0.25)
+    testExpression("3*3**3", 81)
+    testExpression("2**2**2", 16)
+    testExpression("2**3**2", 512)
+    testExpressionFail("")
+    testExpressionFail("(")
+    testExpressionFail(")")
+    testExpressionFail("2+")
+    testExpressionFail("$")
+    testExpressionFail("2$")
+    testExpressionFail("-((2+3)")
+    testExpressionFail("-(2+3))")
+    testExpressionFail("2* *2")

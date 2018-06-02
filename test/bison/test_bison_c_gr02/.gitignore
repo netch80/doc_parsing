@@ -1,0 +1,6 @@
+*.o
+/parser.c
+/parser.h
+/lexer.c
+/lexer.h
+/prog
