@@ -1,3 +1,3 @@
 *.class
 /gr02*.java
-/gr02*.tokens
+/*.tokens

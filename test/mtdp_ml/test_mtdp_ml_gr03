@@ -4,7 +4,7 @@ import sys, traceback
 
 """
 Manual top-down (MTD) parser.
-Testing default order (+-, */, **, unaries, atoms)
+Testing Python-like order (+-, */, unaries, **, atoms)
 """
 
 class ParseError(ValueError):
@@ -128,27 +128,19 @@ class Parser:
         return v
 
     def muldiv(self):
-        v = self.power()
+        v = self.unary()
         while True:
             if isinstance(self.lexer.curr_token, Star):
                 self.lexer.advance()
-                v2 = self.power()
+                v2 = self.unary()
                 v *= v2
             elif isinstance(self.lexer.curr_token, Slash):
                 self.lexer.advance()
-                v2 = self.power()
+                v2 = self.unary()
                 v /= v2
             else:
                 break
         return v
-
-    def power(self):
-        v = self.unary()
-        if isinstance(self.lexer.curr_token, DoubleStar):
-            self.lexer.advance()
-            v2 = self.power()
-            v = v ** v2
-        return  v
 
     def unary(self):
         if isinstance(self.lexer.curr_token, Plus):
@@ -157,7 +149,15 @@ class Parser:
         if isinstance(self.lexer.curr_token, Minus):
             self.lexer.advance()
             return -self.unary()
-        return self.atom()
+        return self.power()
+
+    def power(self):
+        v = self.atom()
+        if isinstance(self.lexer.curr_token, DoubleStar):
+            self.lexer.advance()
+            v2 = self.unary()
+            v = v ** v2
+        return  v
 
     def atom(self):
         if isinstance(self.lexer.curr_token, LeftParen):
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     testExpression("(2+3) * (7-4) + 11", 26)
     testExpression("(2+3) * -(7-4) + 11", -4)
     testExpression("2**2", 4)
-    testExpression("-2**2", 4)
+    testExpression("-2**2", -4)
     testExpression("2**-2", 0.25)
     testExpression("3*3**3", 81)
     testExpression("2**2**2", 16)

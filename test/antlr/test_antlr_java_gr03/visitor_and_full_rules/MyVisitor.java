@@ -1,11 +1,11 @@
 import org.antlr.v4.runtime.tree.TerminalNodeImpl;
 import org.antlr.v4.runtime.tree.ParseTree;
 
-public class MyVisitor extends gr02BaseVisitor<Double> {
+public class MyVisitor extends gr03BaseVisitor<Double> {
     public int verbose = 0;
 
     @Override
-    public Double visitExpression(gr02Parser.ExpressionContext ctx) {
+    public Double visitExpression(gr03Parser.ExpressionContext ctx) {
         if (verbose > 0) {
             System.out.printf("__: visitExpression\n");
         }
@@ -13,7 +13,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
     }
 
     @Override
-    public Double visitAddsub(gr02Parser.AddsubContext ctx) {
+    public Double visitAddsub(gr03Parser.AddsubContext ctx) {
         if (verbose > 0) {
             System.out.printf("__: visitAddsub\n");
         }
@@ -23,7 +23,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
             // NB we can call getText() and compare token text :)
             TerminalNodeImpl op = (TerminalNodeImpl) ctx.getChild(1);
             int optype = op.getSymbol().getType();
-            if (optype == gr02Lexer.PLUS) {
+            if (optype == gr03Lexer.PLUS) {
                 return v1 + v2;
             } else {
                 return v1 - v2;
@@ -34,7 +34,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
     }
 
     @Override
-    public Double visitMuldiv(gr02Parser.MuldivContext ctx) {
+    public Double visitMuldiv(gr03Parser.MuldivContext ctx) {
         if (verbose > 0) {
             System.out.printf("__: visitMuldiv\n");
         }
@@ -43,7 +43,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
             Double v2 = visit(ctx.getChild(2));
             TerminalNodeImpl op = (TerminalNodeImpl) ctx.getChild(1);
             int optype = op.getSymbol().getType();
-            if (optype == gr02Lexer.STAR) {
+            if (optype == gr03Lexer.STAR) {
                 return v1 * v2;
             } else {
                 return v1 / v2;
@@ -54,7 +54,25 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
     }
 
     @Override
-    public Double visitPower(gr02Parser.PowerContext ctx) {
+    public Double visitUnary(gr03Parser.UnaryContext ctx) {
+        if (verbose > 0) {
+            System.out.printf("__: visitUnary\n");
+        }
+        ParseTree c0 = ctx.getChild(0);
+        if (c0 instanceof TerminalNodeImpl) {
+            TerminalNodeImpl op = (TerminalNodeImpl) c0;
+            int optype = op.getSymbol().getType();
+            if (optype == gr03Lexer.PLUS) {
+                return visit(ctx.getChild(1));
+            } else if (optype == gr03Lexer.MINUS) {
+                return -visit(ctx.getChild(1));
+            }
+        }
+        return visit(ctx.getChild(0));
+    }
+
+    @Override
+    public Double visitPower(gr03Parser.PowerContext ctx) {
         if (verbose > 0) {
             System.out.printf("__: visitPower\n");
         }
@@ -68,28 +86,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
     }
 
     @Override
-    public Double visitUnary(gr02Parser.UnaryContext ctx) {
-        if (verbose > 0) {
-            System.out.printf("__: visitUnary\n");
-        }
-        ParseTree c0 = ctx.getChild(0);
-        if (c0 instanceof TerminalNodeImpl) {
-            TerminalNodeImpl op = (TerminalNodeImpl) c0;
-            int optype = op.getSymbol().getType();
-            if (optype == gr02Lexer.PLUS) {
-                // alternative: return visit(ctx.unary());
-                return visit(ctx.getChild(1));
-            } else if (optype == gr02Lexer.MINUS) {
-                // alternative: return -visit(ctx.unary());
-                return -visit(ctx.getChild(1));
-            }
-        }
-        // alternative: return visit(ctx.atom());
-        return visit(ctx.getChild(0));
-    }
-
-    @Override
-    public Double visitAtom(gr02Parser.AtomContext ctx) {
+    public Double visitAtom(gr03Parser.AtomContext ctx) {
         if (verbose > 0) {
             System.out.printf("__: visitAtom\n");
         }
@@ -97,7 +94,7 @@ public class MyVisitor extends gr02BaseVisitor<Double> {
         if (c0 instanceof TerminalNodeImpl) {
             TerminalNodeImpl op = (TerminalNodeImpl) c0;
             int optype = op.getSymbol().getType();
-            if (optype == gr02Lexer.LPAREN) {
+            if (optype == gr03Lexer.LPAREN) {
                 return visit(ctx.expression());
             }
         }

@@ -24,7 +24,8 @@ namespace {
       using qi::_val;
       using qi::_1;
       using qi::lit;
-      // NB C++14 allows "auto" in lambdas, and this typedef isn't used in it.
+      // NB C++14 allows "auto" in lambdas, and this typedef
+      // isn't needed in it.
       typedef boost::spirit::context<
           boost::fusion::cons<double&, boost::fusion::nil>,
           boost::fusion::vector0<>
