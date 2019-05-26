@@ -4,19 +4,25 @@
 Test for manually written automaton with LR, grammar 2, reduced state set
 """
 
+
 import sys, os, traceback
+
 
 verbose = 0
 
+
 class ParseError(ValueError):
     pass
+
 
 class Token:
     def __repr__(self):
         return self.__class__.__name__
 
+
 class Eoi(Token):
     pass
+
 
 class Constant(Token):
     value = None
@@ -25,7 +31,8 @@ class Constant(Token):
         self.value = v
 
     def repr(v):
-        return 'Constant({!r})'.format(self.value,)
+        return 'Constant({!r})'.format(v,)
+
 
 class Plus(Token):
 
@@ -35,6 +42,7 @@ class Plus(Token):
     def doInfix(self, v1, v2):
         return v1 + v2
 
+
 class Minus(Token):
 
     def doPrefix(self, v):
@@ -43,26 +51,32 @@ class Minus(Token):
     def doInfix(self, v1, v2):
         return v1 - v2
 
+
 class Star(Token):
 
     def doInfix(self, v1, v2):
         return v1 * v2
+
 
 class Slash(Token):
 
     def doInfix(self, v1, v2):
         return v1 / v2
 
+
 class DoubleStar(Token):
 
     def doInfix(self, v1, v2):
         return v1 ** v2
 
+
 class LeftParen(Token):
     pass
 
+
 class RightParen(Token):
     pass
+
 
 class Lexer:
     itext = None
@@ -127,11 +141,13 @@ class Lexer:
         self.curr_token = None
         self.prepare()
 
+
 class StateBase:
 
     def transition(self, parser, token):
         raise ParseError("Unhandled transition: state={} token={!r}".format(
                 self.__class__, token,))
+
 
 class ExpectUnary(StateBase):
 
@@ -156,6 +172,7 @@ class ExpectUnary(StateBase):
             return ExpectUnary
         raise ParseError("Unhandled transition: state={} token={!r}".format(
                 self.__class__, token,))
+
 
 class ExpectInfixOrEoi(StateBase):
 
@@ -203,6 +220,7 @@ class ExpectInfixOrEoi(StateBase):
             return None
         raise ParseError("Unhandled transition: state={} token={!r}".format(
                 self.__class__, token,))
+
 
 class Parser:
     valstack = None
@@ -283,12 +301,14 @@ class Parser:
     def oppush(self, value):
         self.opstack.append(value)
 
+
 def calcExpression(text):
     parser = Parser()
     lexer = Lexer(text)
     lexer.prepare()
     result = parser.run(lexer)
     return result
+
 
 def testExpression(text, expected):
     if verbose >= 1:
@@ -306,13 +326,14 @@ def testExpression(text, expected):
     if verbose >= 1:
         print("testExpression() finished")
 
+
 def testExpressionFail(text):
     if verbose >= 1:
         print()
         print("testExpressionFail({!r})".format(text))
     raised = False
     try:
-        r = calcExpression(text)
+        calcExpression(text)
     except ParseError:
         raised = True
     if not raised:
@@ -320,6 +341,7 @@ def testExpressionFail(text):
         exit(1)
     if verbose >= 1:
         print("testExpressionFail() finished")
+
 
 if __name__ == "__main__":
     verbose = int(os.environ.get('VERBOSE', '0'))

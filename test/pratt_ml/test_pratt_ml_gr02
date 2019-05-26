@@ -2,9 +2,11 @@
 
 import sys, traceback
 
+
 """
 Testing default order (+-, */, **, unaries, primaries)
 """
+
 
 LBP_ADDSUB                      = 10
 LBP_MULDIV                      = 20
@@ -13,8 +15,10 @@ LBP_ATOM                        = 100
 LBP_MAX                         = 1000
 LBP_MIN                         = -1000
 
+
 class ParseError(ValueError):
     pass
+
 
 class Token:
     lbp = 0
@@ -25,8 +29,10 @@ class Token:
     def led(self, parser):
         raise ParseError("not implemented: {}.led".format(self.__class__))
 
+
 class Eoi(Token):
     pass
+
 
 class Constant(Token):
     lbp = LBP_MAX
@@ -38,6 +44,7 @@ class Constant(Token):
     def nud(self, _parser):
         return self.value
 
+
 class Plus(Token):
     lbp = LBP_ADDSUB
 
@@ -46,6 +53,7 @@ class Plus(Token):
 
     def led(self, parser, v):
         return v + parser.parse(LBP_ADDSUB)
+
 
 class Minus(Token):
     lbp = LBP_ADDSUB
@@ -56,11 +64,13 @@ class Minus(Token):
     def led(self, parser, v):
         return v - parser.parse(LBP_ADDSUB)
 
+
 class Star(Token):
     lbp = LBP_MULDIV
 
     def led(self, parser, v):
         return v * parser.parse(LBP_MULDIV)
+
 
 class Slash(Token):
     lbp = LBP_MULDIV
@@ -68,11 +78,13 @@ class Slash(Token):
     def led(self, parser, v):
         return v / parser.parse(LBP_MULDIV)
 
+
 class DoubleStar(Token):
     lbp = LBP_POWER
 
     def led(self, parser, v):
         return v ** parser.parse(LBP_POWER - 1)
+
 
 class LeftParen(Token):
     lbp = LBP_MAX
@@ -82,8 +94,10 @@ class LeftParen(Token):
         parser.lexer.advance(RightParen)
         return v
 
+
 class RightParen(Token):
     lbp = LBP_MIN
+
 
 class Lexer:
     itext = None
@@ -148,6 +162,7 @@ class Lexer:
         self.curr_token = None
         self.prepare()
 
+
 class Parser:
     lexer = None
 
@@ -163,6 +178,7 @@ class Parser:
             v = t.led(self, v)
         return v
 
+
 def calcExpression(text):
     parser = Parser()
     parser.lexer = Lexer(text)
@@ -171,6 +187,7 @@ def calcExpression(text):
     if not isinstance(parser.lexer.curr_token, Eoi):
         raise ParseError("garbage at end")
     return ret
+
 
 def testExpression(text, expected):
     try:
@@ -183,15 +200,17 @@ def testExpression(text, expected):
         traceback.print_exc(file = sys.stdout)
         exit(1)
 
+
 def testExpressionFail(text):
     raised = False
     try:
-        r = calcExpression(text)
+        calcExpression(text)
     except ParseError:
         raised = True
     if not raised:
         print("Fail: not raised for: {!r}".format(text))
         exit(1)
+
 
 if __name__ == "__main__":
     testExpression("0", 0)

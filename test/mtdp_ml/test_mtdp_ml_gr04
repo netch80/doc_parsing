@@ -2,25 +2,32 @@
 
 import sys, os, traceback, math
 
+
 """
 Manual top-down (MTD) parser.
 Testing default order (+-, */, **, unaries, primaries).
 Variables and maps are defined.
 """
 
+
 verbose = 0
+
 
 class DCParseError(ValueError):
     pass
 
+
 class DCExecutionError(RuntimeError):
     pass
+
 
 class Token:
     pass
 
+
 class Eoi(Token):
     pass
+
 
 class Constant(Token):
     value = None
@@ -28,32 +35,42 @@ class Constant(Token):
     def __init__(self, v):
         self.value = v
 
+
 class Plus(Token):
     pass
+
 
 class Minus(Token):
     pass
 
+
 class Star(Token):
     pass
+
 
 class Slash(Token):
     pass
 
+
 class DoubleStar(Token):
     pass
+
 
 class LeftParen(Token):
     pass
 
+
 class RightParen(Token):
     pass
+
 
 class LeftBracket(Token):
     pass
 
+
 class RightBracket(Token):
     pass
+
 
 class Word(Token):
     word = None
@@ -61,14 +78,18 @@ class Word(Token):
     def __init__(self, word):
         self.word = word
 
+
 class Identifier(Word):
     pass
+
 
 class Keyword(Word):
     pass
 
+
 class Eq(Token):
     pass
+
 
 class Lexer:
     itext = None
@@ -170,6 +191,7 @@ class Lexer:
     def getRest(self):
         return self.itext[self.ipos:]
 
+
 class SemanticValue:
 
     def getRValue(self, econtext):
@@ -177,6 +199,7 @@ class SemanticValue:
 
     def assignValue(self, econtext, newValue):
         raise NotImplementedError("assignValue")
+
 
 class ScalarSV(SemanticValue):
     value = None
@@ -189,6 +212,7 @@ class ScalarSV(SemanticValue):
 
     def assignValue(self, econtext, newValue):
         raise DCExecutionError("assignValue: this is rvalue")
+
 
 class IdentifierSV(SemanticValue):
     name = None
@@ -203,6 +227,7 @@ class IdentifierSV(SemanticValue):
         if self.name in econtext.maps:
             raise DCExecutionError("assignValue: cannot assign to map")
         econtext.scalars[self.name] = newValue
+
 
 class IndexedReferenceSV(SemanticValue):
     base = None
@@ -232,6 +257,7 @@ class IndexedReferenceSV(SemanticValue):
             raise DCExecutionError("Map not found")
         themap[ivalue] = newElementValue
 
+
 class ExecutionContext:
     """
     This accumulates variables state during execution.
@@ -245,6 +271,7 @@ class ExecutionContext:
 
     def createMap(self, mname):
         self.maps.setdefault(mname, {})
+
 
 class Parser:
     econtext = None
@@ -372,6 +399,7 @@ class Parser:
             return ret
         raise DCParseError("primary: unexpected token {}".format(self.lexer.curr_token))
 
+
 def calcBlock(block):
     econtext = ExecutionContext()
     parser = Parser()
@@ -387,6 +415,7 @@ def calcBlock(block):
             raise DCParseError("garbage at end of line {!r}".format(line))
     return ret
 
+
 def testBlock(text, expected):
     try:
         r = calcBlock(text)
@@ -397,6 +426,7 @@ def testBlock(text, expected):
         print("Fail: text={!r}".format(text))
         traceback.print_exc(file = sys.stdout)
         exit(1)
+
 
 def testBlockFail(text):
     raised = False
@@ -409,6 +439,7 @@ def testBlockFail(text):
     if not raised:
         print("Fail: not raised for: {!r}".format(text))
         exit(1)
+
 
 if __name__ == "__main__":
     verbose = int(os.environ.get('VERBOSE', '0'))

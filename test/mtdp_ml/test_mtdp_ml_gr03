@@ -2,19 +2,24 @@
 
 import sys, traceback
 
+
 """
 Manual top-down (MTD) parser.
 Testing Python-like order (+-, */, unaries, **, atoms)
 """
 
+
 class ParseError(ValueError):
     pass
+
 
 class Token:
     pass
 
+
 class Eoi(Token):
     pass
+
 
 class Constant(Token):
     value = None
@@ -22,26 +27,34 @@ class Constant(Token):
     def __init__(self, v):
         self.value = v
 
+
 class Plus(Token):
     pass
+
 
 class Minus(Token):
     pass
 
+
 class Star(Token):
     pass
+
 
 class Slash(Token):
     pass
 
+
 class DoubleStar(Token):
     pass
+
 
 class LeftParen(Token):
     pass
 
+
 class RightParen(Token):
     pass
+
 
 class Lexer:
     itext = None
@@ -105,6 +118,7 @@ class Lexer:
             raise ParseError("Lexer.advance: want {!r}, see {!r}".format(expected, self.curr_token))
         self.curr_token = None
         self.prepare()
+
 
 class Parser:
     lexer = None
@@ -173,6 +187,7 @@ class Parser:
             return v
         raise ParseError("atom: unexpected token {}".format(self.lexer.curr_token))
 
+
 def calcExpression(text):
     parser = Parser()
     parser.lexer = Lexer(text)
@@ -181,6 +196,7 @@ def calcExpression(text):
     if not isinstance(parser.lexer.curr_token, Eoi):
         raise ParseError("garbage at end")
     return ret
+
 
 def testExpression(text, expected):
     try:
@@ -193,15 +209,17 @@ def testExpression(text, expected):
         traceback.print_exc(file = sys.stdout)
         exit(1)
 
+
 def testExpressionFail(text):
     raised = False
     try:
-        r = calcExpression(text)
+        calcExpression(text)
     except ParseError:
         raised = True
     if not raised:
         print("Fail: not raised for: {!r}".format(text))
         exit(1)
+
 
 if __name__ == "__main__":
     testExpression("0", 0)
